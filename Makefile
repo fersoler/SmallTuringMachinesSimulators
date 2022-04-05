@@ -1,6 +1,6 @@
 CC = g++
 
-all: TMsimulator TMreduced TMreducedTime TMrandom TMrandomTime TMrandomInstructions
+all: TMsimulator TMreduced TMreducedTime TMrandom TMrandomTime TMrandomInstructions TMrandomNormal
 
 TMsimulator: TMsimulator.c
 	$(CC) -o TMsimulator TMsimulator.c -lgmpxx -lgmp
@@ -14,3 +14,5 @@ TMrandomInstructions: TMrandomInstructions.c
 	$(CC) -o TMrandomInstructions TMrandomInstructions.c -lgmpxx -lgmp
 TMrandomTime: TMrandomTime.c
 	$(CC) -o TMrandomTime TMrandomTime.c -lgmpxx -lgmp 
+TMrandomNormal: TMrandomNormal.c
+	$(CC) -o TMrandomNormal TMrandomNormal.c -lgmpxx -lgmp 

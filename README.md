@@ -91,13 +91,13 @@ Equal to `TMreduced` but the output is the distribution of runtimes of halting m
 
 This version returns the output distribution of randomly generated TMs. It is used when sampling large TM spaces. 
 
-The `initTM` parameter is set to 0 and the `endTM` parameter is the number of random TMs to run.
+The `initTM` parameter is set to 1 and the `endTM` parameter is the number of random TMs to run.
 
 **Example :**
 
->`./TMrandom 2 2 500 0 1000`\
+>`./TMrandom 2 2 500 1 1000`\
 >-1 : 20\
->-2 : 527\
+>-2 : 526\
 >-3 : 101\
 >-4 : 72\
 >-5 : 29\
@@ -115,10 +115,10 @@ Like `TMrandom` but the output is the runtime distribution of random TMs.
 
 **Example:**
 
->`./TMrandomTime 2 2 500 0 1000`\
+>`./TMrandomTime 2 2 500 1 1000`\
 >-5 : 25\
 >-4 : 70\
->-3 : 120\
+>-3 : 119\
 >-2 : 512\
 >-1 : 24\
 >2 : 192\
@@ -134,8 +134,8 @@ This version runs random TMs and returns the lower number of instructions used b
 
 **Example:**
 
->`./TMrandomInstructions 2 2 500 0 1000`\
-{"00",2},\
+>`./TMrandomInstructions 2 2 500 1 1000`\
+{"00",1},\
 {"001",4},\
 {"01",2},\
 {"011",4},\
@@ -145,3 +145,41 @@ This version runs random TMs and returns the lower number of instructions used b
 {"1011",4},\
 {"11",2},\
 {"110",4},
+
+## TMrandomNormal
+
+This version is similar to `TMrandom` but the output is normalized (starting with 012...). The last parameter in the input establishes the *max length* of the string to be saved.
+
+Input: 
+- `s`: states
+- `k`: symbols
+- `r`: runtime
+- `init`: starting count (set to 1)
+- `end`:  end count (set to the number of random machines)
+- `maxL`: max length of returned strings
+
+Output codes:
+- "-1": non-detected non-halting machine
+- "-2": machine without transition to the halting state
+- "-3": short escapees
+- "-4": other escapees
+- "-5": cycles of order two
+- "-6": string too long
+
+
+**Example :**
+
+>`./TMrandomNormal 3 5 1000 1 100 8`\
+-1 : 13\
+-2 : 12\
+-3 : 26\
+-4 : 12\
+00 : 3\
+001 : 1\
+01 : 23\
+0100 : 1\
+0112 : 1\
+012 : 4\
+0121 : 2\
+01222 : 1\
+0123 : 1

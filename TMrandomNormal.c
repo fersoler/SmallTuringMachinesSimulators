@@ -1,17 +1,26 @@
 /*
- 
- Small Turing Machines simulator for the complete enumeration.
 
- After compilation the program is called with five arguments:
-- `s`. Number of states different to the halting one. 
-- `k`. Number of tape symbols. 
-- `maxRuntime`. Max allowed steps before throwing the non-halting error (-1). 
-- `initTM`. Number of the first TM to run.
-- `endTM`. Number of the last TM to run.
+  Like TMrandom but the output is normalized (starting with 012...)
 
-The output is a list with the format "output : frequency".
+  **The last parameter in the input establishes the max length of the string to be saved**
 
-*/
+  Input: 
+  - s: states
+  - k: symbols
+  - r: runtime
+  - init: starting count (set to 1)
+  - end:  end count (set to the number of random machines)
+  - maxL: max length of returned strings
+
+  Output codes:
+  - "-1": non-detected non-halting machine
+  - "-2": machine without transition to the halting state
+  - "-3": short escapees
+  - "-4": other escapees
+  - "-5": cycles of order two
+  - "-6": string too long
+
+ */
 
 #include <stdlib.h>  // general-purpose library
 #include <stdio.h>   // read-write functionality
@@ -22,8 +31,16 @@ The output is a list with the format "output : frequency".
 #include <sstream>
 #include <map>
 #include <utility>
+#include <random>
+#include <unistd.h>
 
 using namespace std;
+
+typedef minstd_rand G; // For the random number generators
+typedef uniform_int_distribution<> D;
+
+G gFst(time(NULL));
+G gRst(getpid()*time(NULL));
 
 typedef char symbol;   // The 'symbol' is a char (256)
 enum direction {DIR_LEFT, STOP, DIR_RIGHT}; // possible directions
@@ -44,6 +61,7 @@ struct turing_machine_state {
   int min_head_position;   // number of the most-left visited cell  (<=0)
   int tape_r_size;      // size of the right tape 
   int tape_l_size;      // size of the left tape
+  int escapees;         // consecutive shifts to blank symbols (to detect escapees)
   symbol* tape_r;       // right tape (array of symbols)
   symbol* tape_l;       // left tape (array of symbols)
 };
@@ -52,6 +70,7 @@ typedef struct turing_machine_state turing_machine_state;
 // General data of the TM
 struct turing_machine {
   int number_colors;         // number of symbols
+  int running_state;         // -1 continue, 0 stop, other values: non-halting codes
   int number_states;         // number of states
   int halting_state;         // halting state
   int initial_control_state; // initial state
@@ -102,7 +121,7 @@ int run_step(turing_machine *m){
 
   //  show_data(m);
 
-
+    int state1 = m->state.control_state;
     int cell = m->state.head_position;      // current cell
     
     symbol s1;                             // get current symbol
@@ -127,21 +146,31 @@ int run_step(turing_machine *m){
     m->state.control_state = tr.control_state;  
 
     // Stops (without moving the head) if the halting state is reached
-    if(m->state.control_state == m->halting_state)
+    if(m->state.control_state == m->halting_state){
+      m->running_state=0;
       return 0;
-
+    }
      
     // Moves the head and possible extends the tape
     if(tr.dir == DIR_LEFT){    // LEFT DIRECTION
       m->state.head_position--;                              // moves the head
-      if(m->state.head_position < m->state.min_head_position) // if smaller than left-most position
+      if(m->state.head_position < m->state.min_head_position){ // if smaller than left-most position
 	m->state.min_head_position = m->state.head_position;  // decreases
+	m->state.escapees = m->state.escapees+1;
+	if(s1 == m->blank_symbol && m->state.control_state == state1){ // short escapee
+	  m->running_state = -3; 
+	  return 0;
+	}
+	if(m->state.escapees > m->number_states){   // escapee detected
+	  m->running_state = -4; 
+	  return 0;
+	}
       // WHEN THE NEW POSITION IS SMALLER THAN THE TAPE SIZE
       if (m->state.head_position <= -1*(m->state.tape_l_size)) {  // if the end of the tape is reached
 	int i, old_tape_size = m->state.tape_l_size; 
 	symbol* new_tape = (symbol*) realloc(m->state.tape_l, old_tape_size*2); // increases tape size
 	if (new_tape == NULL) {    // if not enough memory
-	  printf("Out of memory: expanding left tape\n");
+	  printf("Out of memory: expanding left tape\n");  
 	  exit(-1);                // the program finishes
 	}
 	m->state.tape_l = new_tape;  // sets the new tape
@@ -150,26 +179,56 @@ int run_step(turing_machine *m){
 	  m->state.tape_l[i] = m->blank_symbol; // and fills them with blanks
 	}
       }
+    } else
+	m->state.escapees=0;
     }
     else {  // RIGHT DIRECTION
       m->state.head_position++; // moves the head
-      if(m->state.head_position > m->state.max_head_position) // greater then right-most position
+      if(m->state.head_position > m->state.max_head_position){ // greater then right-most position
 	m->state.max_head_position = m->state.head_position;	
-      // case that is grater than size
-      if (m->state.head_position >= m->state.tape_r_size) {  // if the end of the tape is reached
-	int i, old_tape_size = m->state.tape_r_size; 
-	symbol* new_tape = (symbol*) realloc(m->state.tape_r, old_tape_size*2); // increases tape size
-	if (new_tape == NULL) {    // if not enough memory
-	  printf("Out of memory: expanding right tape");  
-	  exit(-1);                // the program finishes
+	m->state.escapees = m->state.escapees+1;
+	if(s1 == m->blank_symbol && m->state.control_state == state1){ // short escapee
+	  m->running_state = -3; 
+	  return 0;
 	}
-	m->state.tape_r = new_tape;  // sets the new tape
-	m->state.tape_r_size *= 2;   // the size is duplicated
-	for (i=old_tape_size; i < m->state.tape_r_size; i++) { // visits all the new cells
-	  m->state.tape_r[i] = m->blank_symbol; // and fills them with blanks
+	if(m->state.escapees > m->number_states){ // escapee detected
+	  m->running_state = -4; 
+	  return 0;
 	}
+	// case that is grater than size
+	if (m->state.head_position >= m->state.tape_r_size) {  // if the end of the tape is reached
+	  int i, old_tape_size = m->state.tape_r_size; 
+	  symbol* new_tape = (symbol*) realloc(m->state.tape_r, old_tape_size*2); // increases tape size
+	  if (new_tape == NULL) {    // if not enough memory
+	    printf("Out of memory: expanding right tape");  
+	    exit(-1);                // the program finishes
+	  }
+	  m->state.tape_r = new_tape;  // sets the new tape
+	  m->state.tape_r_size *= 2;   // the size is duplicated
+	  for (i=old_tape_size; i < m->state.tape_r_size; i++) { // visits all the new cells
+	    m->state.tape_r[i] = m->blank_symbol; // and fills them with blanks
+	  }
+	}
+      } else
+	m->state.escapees=0;
+    }
+    
+    // Detecting cycles of order two
+    if(tr.write_symbol == s1){     // BUG FIXED
+      symbol s2;                             // get new symbol
+      if (m->state.head_position >= 0){
+	s2 = m->state.tape_r[m->state.head_position];
+      } else {
+	s2 = m->state.tape_l[(-1)*m->state.head_position]; 
       }
-    }    
+      transition_result tr2 = m->transition_table[m->state.control_state][s2];
+      if (tr2.control_state == state1 && 
+	  tr2.write_symbol == s2 &&
+	  tr2.dir != tr.dir){
+	m->running_state = -5; 
+	return 0;
+      }
+    }
     
     return 1;
     
@@ -180,7 +239,7 @@ int run_step(turing_machine *m){
   Initialization of a Turing Machine
  ******************************************************************/
 
-turing_machine init_turing_machine(int states, int colors, int blank, mpz_t numberTM){
+turing_machine init_turing_machine(int states, int colors, int blank, D dF, D dR){
 
   turing_machine m;
   m.number_colors = colors;
@@ -196,6 +255,7 @@ turing_machine init_turing_machine(int states, int colors, int blank, mpz_t numb
   m.state.min_head_position = 0;
   m.state.tape_r_size = 16;
   m.state.tape_l_size = 16;     
+  m.state.escapees = 0;
   // Right tape
   m.state.tape_r = (symbol*) malloc(sizeof(symbol)*m.state.tape_r_size); // reserves space for the tape
   if (m.state.tape_r == NULL) {  
@@ -238,26 +298,51 @@ turing_machine init_turing_machine(int states, int colors, int blank, mpz_t numb
   // Filling the transition table
   int i = 0;
   int j= 0;
-  mpz_t gr; // rest
-  mpz_t gc; // quotient
-  
-  mpz_init(gr);
-  mpz_init(gc);
-  
+
   int rest;
   
-  for (i=states-1; i>=0; i--) {     // the order may possibly change
+  //  srand(time(NULL));  // starting the random generator
+  
+  int halts = -2; // to test if the machine halts
+  
+  // Filling the initial transition 
+  m.transition_table[0][0].dir = DIR_RIGHT; // goes to the right
+  rest = dF(gFst);
+  m.transition_table[0][0].write_symbol = (rest % colors);
+  rest = rest/colors;
+  m.transition_table[0][0].control_state = 1+(rest % (states-1));
+
+  // Other transitions from the initial state
+  for(j=1;j<colors;j++){
+    
+    rest = dR(gRst);
+    
+    if(rest<colors){
+      m.transition_table[0][j].control_state = m.halting_state;
+      m.transition_table[0][j].write_symbol = rest;
+      m.transition_table[0][j].dir = STOP;
+      halts = -1;
+    } else {
+      rest = rest - colors;      
+      m.transition_table[0][j].write_symbol = (rest % colors);
+      rest = rest/colors;      
+      m.transition_table[0][j].dir = ((rest % 2)==0 ? DIR_RIGHT : DIR_LEFT);
+      rest = rest / 2;      
+      m.transition_table[0][j].control_state = (rest % states); // halting state	      
+    }
+  }
+
+  // Transitions for other states
+  for (i=1; i<states; i++) {  
     for(j=0;j<colors;j++){
       
-      mpz_fdiv_qr_ui(gc, gr, numberTM, colors*((2*states)+1));
-      mpz_set(numberTM, gc);
-      
-      rest = mpz_get_ui(gr);
+      rest = dR(gRst);
       
       if(rest<colors){
 	m.transition_table[i][j].control_state = m.halting_state;
 	m.transition_table[i][j].write_symbol = rest;
 	m.transition_table[i][j].dir = STOP;
+	halts = -1;
       } else {
 	rest = rest - colors;
 
@@ -273,11 +358,10 @@ turing_machine init_turing_machine(int states, int colors, int blank, mpz_t numb
     }
   }
 
-  mpz_clear(gr);
-  mpz_clear(gc);
-      
-  // shows the transition table 
-  /*   for (i=0; i<states; i++) { 
+  m.running_state = halts;
+
+  // shows the transition table (with Hector's notation)  
+  /*  for (i=0; i<states; i++) { 
     for(j=colors-1;j>=0; j--){
       printf("{%i, %i} -> {%i, %i, %i}\n",
 	     i+1,j,
@@ -285,10 +369,9 @@ turing_machine init_turing_machine(int states, int colors, int blank, mpz_t numb
 	     m.transition_table[i][j].write_symbol,
 	     (m.transition_table[i][j].dir)-1);
     }
-    }*/ 
-  
+    }
+  */ 
 
-  // Returns the constructed TM
   return m;
 
 }
@@ -304,22 +387,46 @@ void delete_state(turing_machine *m){
 }
 
 
-string outputTM(turing_machine *m){
-  if(m->state.control_state != m->halting_state)
-    return "-1";
+string normalize(string s){
+  if(s[0] == '-')
+    return s;
+  string out = "";
+  int assoc [10];
+  int i;
+  int next = 0;
+  for(i=0; i<10 && (assoc[i]=-1); i++){};
+  for(i=0;i<s.size();i++){
+    if(assoc[s[i]-'0']==-1){
+      assoc[s[i]-'0'] = next;
+      next++;
+    }
+      out += (assoc[s[i]-'0']+'0');
+  }
+  return out;
+}
+
+string outputTM(turing_machine *m, int max_length){
   string sout = "";
   char symb;
-  
-  int i;
-  for (i=m->state.min_head_position; i<=m->state.max_head_position; i++){
-    if(i<0){
-      symb = (m->state.tape_l[-1*i])+'0';
-    } else {
-      symb = (m->state.tape_r[i])+'0';
-    }
-    sout = sout+symb; 
-  }   
-  return sout;
+  if(m->running_state == 0){
+    if(m->state.max_head_position >= (max_length + m->state.min_head_position))
+      return "-6";
+    int i;
+    for (i=m->state.min_head_position; i<=m->state.max_head_position; i++){
+      if(i<0){
+	symb = (m->state.tape_l[-1*i])+'0';
+      } else {
+	symb = (m->state.tape_r[i])+'0';
+      }
+      sout = sout+symb; 
+    }   
+    
+  } else {    
+    stringstream strm;
+    strm << m->running_state;  
+    strm >> sout;
+  }
+  return normalize(sout);
 }
 
 
@@ -330,7 +437,7 @@ int main(int argn, char* argv[]) {
   // - maxRuntime
   // - initTM
   // - end TM
-  
+
   turing_machine machine;
   
   map<string, unsigned long long> results;
@@ -341,24 +448,34 @@ int main(int argn, char* argv[]) {
   int k = atoi(argv[2]);
   int runtime =  atoi(argv[3]);
 
+  int max_length = atoi(argv[6]);
+
+  D dFst(0, (k*(s-1))-1);
+  D dRst(0, (2*s*k)+k-1);  
+
   mpz_t TM;
   mpz_init_set_str(TM,argv[4],10);
 
   mpz_t Last;
-  mpz_init_set_str(Last,argv[5],10);
+  mpz_init_set_str(Last,argv[5],10);  
 
   mpz_t acc;
   mpz_init(acc);
-  //  int count = 0;
 
   while(mpz_cmp(TM,Last)<=0){
     mpz_set(acc,TM);
-    machine = init_turing_machine(s,k,0,acc);
-    for(i=0; i<runtime && run_step(&machine); i++){};
-    out = outputTM(&machine);  
-    ++results[out];
+    machine = init_turing_machine(s,k,0,dFst,dRst);
+
+    if(machine.running_state==-1){
+      for(i=0; i<runtime && run_step(&machine); i++){};
+      out = outputTM(&machine,max_length);  
+      ++results[out];
+    } else
+      ++results["-2"]; // No transition to halt state
+
     delete_state(&machine);
-    mpz_add_ui(TM,TM,1);     
+    mpz_add_ui(TM,TM,1);    
+
   }
 
   mpz_clear(TM);

@@ -25,8 +25,6 @@
 
 using namespace std;
 
-using namespace std;
-
 typedef minstd_rand G; // For the random number generators
 typedef uniform_int_distribution<> D;
 
